@@ -1,0 +1,6 @@
+{
+  "uuid": "simple-tiling@tubbe",
+  "name": "Simple Tiling",
+  "description": "Automatic tiling window manager for GNOME Shell. Divides windows into non-overlapping tiles using binary space partitioning.",
+  "shell-version": ["48", "49"]
+ }
