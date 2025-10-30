@@ -10,8 +10,10 @@ export class TilingManager {
     constructor() {
         this.workspaceTrees = new Map(); // workspace index -> root TreeNode
         this.windowNodes = new Map(); // Meta.Window -> TreeNode
+        this.windowSignals = new Map(); // Meta.Window -> array of signal IDs
         this.signals = [];
         this.focusedWindow = null;
+        this.isApplyingGeometry = false; // Flag to prevent recursive geometry applications
     }
 
     /**
@@ -29,8 +31,17 @@ export class TilingManager {
      */
     disable() {
         this._disconnectSignals();
+
+        // Disconnect all window monitoring signals
+        for (const [window, signals] of this.windowSignals.entries()) {
+            signals.forEach(signal => {
+                signal.object.disconnect(signal.id);
+            });
+        }
+
         this.workspaceTrees.clear();
         this.windowNodes.clear();
+        this.windowSignals.clear();
         this.focusedWindow = null;
     }
 
@@ -144,6 +155,9 @@ export class TilingManager {
         const newNode = new TreeNode(NodeType.WINDOW, metaWindow);
         this.windowNodes.set(metaWindow, newNode);
 
+        // Monitor this window's geometry to correct misbehaving applications
+        this._monitorWindowGeometry(metaWindow);
+
         let root = this.workspaceTrees.get(workspaceIndex);
 
         if (!root) {
@@ -207,6 +221,109 @@ export class TilingManager {
     }
 
     /**
+     * Start monitoring a window's geometry and correct it if it misbehaves
+     */
+    _monitorWindowGeometry(metaWindow) {
+        const signals = [];
+
+        // Listen to position changes
+        const posId = metaWindow.connect('position-changed', () => {
+            this._onWindowGeometryChanged(metaWindow);
+        });
+        signals.push({ object: metaWindow, id: posId });
+
+        // Listen to size changes
+        const sizeId = metaWindow.connect('size-changed', () => {
+            this._onWindowGeometryChanged(metaWindow);
+        });
+        signals.push({ object: metaWindow, id: sizeId });
+
+        this.windowSignals.set(metaWindow, signals);
+        console.log(`[Simple Tiling] Monitoring geometry changes for ${metaWindow.get_title()}`);
+    }
+
+    /**
+     * Called when a window's geometry changes - verify it's in the correct position
+     */
+    _onWindowGeometryChanged(metaWindow) {
+        // Avoid recursive calls while we're applying geometry
+        if (this.isApplyingGeometry) {
+            return;
+        }
+
+        const node = this.windowNodes.get(metaWindow);
+        if (!node || !node.geometry) {
+            return;
+        }
+
+        // Check if window is where it should be
+        const actualFrame = metaWindow.get_frame_rect();
+        if (!actualFrame) {
+            return;
+        }
+
+        const expected = node.geometry;
+        const expectedX = expected.x + GAP_SIZE;
+        const expectedY = expected.y + GAP_SIZE;
+        const expectedW = expected.width - (GAP_SIZE * 2);
+        const expectedH = expected.height - (GAP_SIZE * 2);
+
+        // Allow small tolerance (5px) for minor differences
+        const tolerance = 5;
+        if (Math.abs(actualFrame.x - expectedX) > tolerance ||
+            Math.abs(actualFrame.y - expectedY) > tolerance ||
+            Math.abs(actualFrame.width - expectedW) > tolerance ||
+            Math.abs(actualFrame.height - expectedH) > tolerance) {
+
+            console.log(`[Simple Tiling] Window ${metaWindow.get_title()} moved itself! Expected (${expectedX},${expectedY},${expectedW}x${expectedH}) but got (${actualFrame.x},${actualFrame.y},${actualFrame.width}x${actualFrame.height})`);
+
+            // Reapply correct geometry
+            this._applyWindowGeometry(metaWindow, node.geometry);
+        }
+    }
+
+    /**
+     * Apply geometry to a single window
+     */
+    _applyWindowGeometry(metaWindow, geometry) {
+        this.isApplyingGeometry = true;
+
+        try {
+            // Unmaximize first
+            try {
+                metaWindow.unmaximize();
+            } catch (e) {
+                // Ignore
+            }
+
+            const rect = new Mtk.Rectangle({
+                x: geometry.x + GAP_SIZE,
+                y: geometry.y + GAP_SIZE,
+                width: geometry.width - (GAP_SIZE * 2),
+                height: geometry.height - (GAP_SIZE * 2)
+            });
+
+            console.log(`[Simple Tiling] Correcting ${metaWindow.get_title()} to x=${rect.x}, y=${rect.y}, w=${rect.width}, h=${rect.height}`);
+            metaWindow.move_resize_frame(false, rect.x, rect.y, rect.width, rect.height);
+        } finally {
+            this.isApplyingGeometry = false;
+        }
+    }
+
+    /**
+     * Stop monitoring a window's geometry
+     */
+    _stopMonitoringWindow(metaWindow) {
+        const signals = this.windowSignals.get(metaWindow);
+        if (signals) {
+            signals.forEach(signal => {
+                signal.object.disconnect(signal.id);
+            });
+            this.windowSignals.delete(metaWindow);
+        }
+    }
+
+    /**
      * Remove a window from the tiling tree
      */
     _removeWindow(metaWindow) {
@@ -217,6 +334,9 @@ export class TilingManager {
             console.log(`[Simple Tiling] Window not in tree, ignoring removal`);
             return;
         }
+
+        // Stop monitoring this window's geometry
+        this._stopMonitoringWindow(metaWindow);
 
         // Find which workspace this window's tree belongs to
         let workspaceIndex = null;
@@ -433,13 +553,12 @@ export class TilingManager {
                 return;
             }
 
-            // Unmaximize window first
+            // Unmaximize window first (GNOME 49+ compatible)
             try {
-                if (win.get_maximized()) {
-                    win.unmaximize(Meta.MaximizeFlags.BOTH);
-                }
+                // GNOME 49+ unmaximize() takes no arguments
+                win.unmaximize();
             } catch (e) {
-                console.warn(`[Simple Tiling] Failed to unmaximize ${win.get_title()}: ${e.message}`);
+                // Silently ignore - window might not be maximized or in a state to unmaximize
             }
 
             // Apply geometry with gap insets
