@@ -3,6 +3,9 @@
 import { TreeNode, NodeType, SplitType } from './treeNode.js';
 import Meta from 'gi://Meta';
 import Mtk from 'gi://Mtk';
+import St from 'gi://St';
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 const GAP_SIZE = 2; // 2px gaps between windows
 
@@ -14,6 +17,10 @@ export class TilingManager {
         this.signals = [];
         this.focusedWindow = null;
         this.isApplyingGeometry = false; // Flag to prevent recursive geometry applications
+        this.singleWindowWorkspaces = new Set(); // Track workspaces with only one window
+        this.workspaceEnabled = new Map(); // workspace index -> boolean (default true)
+        this.panelButton = null; // Top bar button reference
+        this.buttonIcon = null; // Icon reference
     }
 
     /**
@@ -22,6 +29,7 @@ export class TilingManager {
     enable() {
         console.log('[Simple Tiling] TilingManager.enable() called');
         this._connectSignals();
+        this._createPanelButton();
         this._tileExistingWindows();
         console.log('[Simple Tiling] TilingManager enabled successfully');
     }
@@ -30,6 +38,7 @@ export class TilingManager {
      * Disable the tiling manager and cleanup
      */
     disable() {
+        this._destroyPanelButton();
         this._disconnectSignals();
 
         // Disconnect all window monitoring signals
@@ -42,6 +51,7 @@ export class TilingManager {
         this.workspaceTrees.clear();
         this.windowNodes.clear();
         this.windowSignals.clear();
+        this.singleWindowWorkspaces.clear();
         this.focusedWindow = null;
     }
 
@@ -64,6 +74,13 @@ export class TilingManager {
         });
         this.signals.push({ object: global.display, id });
         console.log(`[Simple Tiling] Connected focus-window signal (id: ${id})`);
+
+        // Track workspace switching
+        id = global.workspace_manager.connect('workspace-switched', (manager, fromIndex, toIndex) => {
+            this._onWorkspaceSwitched(fromIndex, toIndex);
+        });
+        this.signals.push({ object: global.workspace_manager, id });
+        console.log(`[Simple Tiling] Connected workspace-switched signal (id: ${id})`);
     }
 
     /**
@@ -256,17 +273,32 @@ export class TilingManager {
             return;
         }
 
+        // Don't enforce tiling if it's disabled for this workspace
+        const workspace = metaWindow.get_workspace();
+        if (workspace) {
+            const workspaceIndex = workspace.index();
+            const isEnabled = this.workspaceEnabled.get(workspaceIndex) ?? true;
+            if (!isEnabled) {
+                // Tiling is disabled, allow free movement
+                return;
+            }
+        }
+
         // Check if window is where it should be
         const actualFrame = metaWindow.get_frame_rect();
         if (!actualFrame) {
             return;
         }
 
+        // Determine if this window is in single window mode
+        const isSingleWindow = workspace ? this.singleWindowWorkspaces.has(workspace.index()) : false;
+        const gapSize = isSingleWindow ? 0 : GAP_SIZE;
+
         const expected = node.geometry;
-        const expectedX = expected.x + GAP_SIZE;
-        const expectedY = expected.y + GAP_SIZE;
-        const expectedW = expected.width - (GAP_SIZE * 2);
-        const expectedH = expected.height - (GAP_SIZE * 2);
+        const expectedX = expected.x + gapSize;
+        const expectedY = expected.y + gapSize;
+        const expectedW = expected.width - (gapSize * 2);
+        const expectedH = expected.height - (gapSize * 2);
 
         // Allow small tolerance (5px) for minor differences
         const tolerance = 5;
@@ -278,14 +310,14 @@ export class TilingManager {
             console.log(`[Simple Tiling] Window ${metaWindow.get_title()} moved itself! Expected (${expectedX},${expectedY},${expectedW}x${expectedH}) but got (${actualFrame.x},${actualFrame.y},${actualFrame.width}x${actualFrame.height})`);
 
             // Reapply correct geometry
-            this._applyWindowGeometry(metaWindow, node.geometry);
+            this._applyWindowGeometry(metaWindow, node.geometry, isSingleWindow);
         }
     }
 
     /**
      * Apply geometry to a single window
      */
-    _applyWindowGeometry(metaWindow, geometry) {
+    _applyWindowGeometry(metaWindow, geometry, isSingleWindow = false) {
         this.isApplyingGeometry = true;
 
         try {
@@ -296,11 +328,12 @@ export class TilingManager {
                 // Ignore
             }
 
+            const gapSize = isSingleWindow ? 0 : GAP_SIZE;
             const rect = new Mtk.Rectangle({
-                x: geometry.x + GAP_SIZE,
-                y: geometry.y + GAP_SIZE,
-                width: geometry.width - (GAP_SIZE * 2),
-                height: geometry.height - (GAP_SIZE * 2)
+                x: geometry.x + gapSize,
+                y: geometry.y + gapSize,
+                width: geometry.width - (gapSize * 2),
+                height: geometry.height - (gapSize * 2)
             });
 
             console.log(`[Simple Tiling] Correcting ${metaWindow.get_title()} to x=${rect.x}, y=${rect.y}, w=${rect.width}, h=${rect.height}`);
@@ -360,6 +393,7 @@ export class TilingManager {
             // Was the only window on workspace
             console.log(`[Simple Tiling] Window was only window on workspace, clearing tree`);
             this.workspaceTrees.delete(workspaceIndex);
+            this.singleWindowWorkspaces.delete(workspaceIndex);
             return;
         }
 
@@ -373,6 +407,7 @@ export class TilingManager {
                 parent.detach();
             } else {
                 this.workspaceTrees.delete(workspaceIndex);
+                this.singleWindowWorkspaces.delete(workspaceIndex);
             }
             this._retile(workspaceIndex);
             return;
@@ -428,6 +463,14 @@ export class TilingManager {
      */
     _retile(workspaceIndex) {
         console.log(`[Simple Tiling] _retile called for workspace ${workspaceIndex}`);
+
+        // Check if tiling is enabled for this workspace (defaults to true)
+        const isEnabled = this.workspaceEnabled.get(workspaceIndex) ?? true;
+        if (!isEnabled) {
+            console.log(`[Simple Tiling] Tiling disabled for workspace ${workspaceIndex}, skipping`);
+            return;
+        }
+
         const root = this.workspaceTrees.get(workspaceIndex);
         if (!root) {
             console.log(`[Simple Tiling] No root node for workspace ${workspaceIndex}`);
@@ -445,13 +488,22 @@ export class TilingManager {
         const workArea = workspace.get_work_area_for_monitor(primaryMonitor);
         console.log(`[Simple Tiling] Work area for monitor ${primaryMonitor}: x=${workArea.x}, y=${workArea.y}, w=${workArea.width}, h=${workArea.height}`);
 
+        // Check if this workspace has only one window
+        const isSingleWindow = root.isLeaf();
+        if (isSingleWindow) {
+            this.singleWindowWorkspaces.add(workspaceIndex);
+            console.log('[Simple Tiling] Single window mode - no gaps will be applied');
+        } else {
+            this.singleWindowWorkspaces.delete(workspaceIndex);
+        }
+
         // Calculate geometries for all nodes in tree
         console.log('[Simple Tiling] Calculating geometries...');
         this._calculateGeometry(root, workArea);
 
         // Apply calculated geometries to actual windows
         console.log('[Simple Tiling] Applying geometries...');
-        this._applyGeometries(root);
+        this._applyGeometries(root, isSingleWindow);
         console.log('[Simple Tiling] _retile completed');
     }
 
@@ -528,7 +580,7 @@ export class TilingManager {
     /**
      * Recursively apply geometries to windows
      */
-    _applyGeometries(node) {
+    _applyGeometries(node, isSingleWindow = false) {
         if (node.isLeaf() && node.metaWindow) {
             // Validate window is in a state where it can be manipulated
             const win = node.metaWindow;
@@ -561,13 +613,14 @@ export class TilingManager {
                 // Silently ignore - window might not be maximized or in a state to unmaximize
             }
 
-            // Apply geometry with gap insets
+            // Apply geometry with or without gaps depending on single window mode
             const geo = node.geometry;
+            const gapSize = isSingleWindow ? 0 : GAP_SIZE;
             const rect = new Mtk.Rectangle({
-                x: geo.x + GAP_SIZE,
-                y: geo.y + GAP_SIZE,
-                width: geo.width - (GAP_SIZE * 2),
-                height: geo.height - (GAP_SIZE * 2)
+                x: geo.x + gapSize,
+                y: geo.y + gapSize,
+                width: geo.width - (gapSize * 2),
+                height: geo.height - (gapSize * 2)
             });
 
             console.log(`[Simple Tiling] Moving ${win.get_title()} (id: ${win.get_id()}) to x=${rect.x}, y=${rect.y}, w=${rect.width}, h=${rect.height}`);
@@ -581,10 +634,10 @@ export class TilingManager {
             }
         } else if (node.isContainer()) {
             if (node.firstChild) {
-                this._applyGeometries(node.firstChild);
+                this._applyGeometries(node.firstChild, isSingleWindow);
             }
             if (node.secondChild) {
-                this._applyGeometries(node.secondChild);
+                this._applyGeometries(node.secondChild, isSingleWindow);
             }
         }
     }
@@ -672,5 +725,101 @@ export class TilingManager {
         }
 
         this._retile(workspaceIndex);
+    }
+
+    /**
+     * Create panel button in top bar
+     */
+    _createPanelButton() {
+        console.log('[Simple Tiling] Creating panel button');
+
+        this.panelButton = new PanelMenu.Button(0.0, 'Simple Tiling', false);
+
+        this.buttonIcon = new St.Icon({
+            icon_name: 'view-grid-symbolic',
+            style_class: 'system-status-icon',
+        });
+        this.panelButton.add_child(this.buttonIcon);
+
+        this.panelButton.connect('button-press-event', () => {
+            this._toggleCurrentWorkspace();
+            return true; // Prevent menu from opening
+        });
+
+        // Add to left side of panel (position 0 = left, 1 = center, 2 = right)
+        Main.panel.addToStatusArea('simple-tiling', this.panelButton, 1, 'left');
+
+        // Update initial state
+        const currentWs = global.workspace_manager.get_active_workspace().index();
+        this._updatePanelButton(currentWs);
+
+        console.log('[Simple Tiling] Panel button created');
+    }
+
+    /**
+     * Destroy panel button
+     */
+    _destroyPanelButton() {
+        if (this.panelButton) {
+            console.log('[Simple Tiling] Destroying panel button');
+            this.panelButton.destroy();
+            this.panelButton = null;
+            this.buttonIcon = null;
+        }
+    }
+
+    /**
+     * Handle workspace switch
+     */
+    _onWorkspaceSwitched(fromIndex, toIndex) {
+        console.log(`[Simple Tiling] Workspace switched: ${fromIndex} -> ${toIndex}`);
+        this._updatePanelButton(toIndex);
+    }
+
+    /**
+     * Update panel button appearance based on workspace state
+     */
+    _updatePanelButton(workspaceIndex) {
+        if (!this.panelButton || !this.buttonIcon) return;
+
+        const isEnabled = this.workspaceEnabled.get(workspaceIndex) ?? true;
+
+        if (isEnabled) {
+            // Tiling active - grid icon with full opacity
+            this.buttonIcon.icon_name = 'view-grid-symbolic';
+            this.buttonIcon.remove_style_class_name('simple-tiling-disabled');
+            this.panelButton.remove_style_pseudo_class('checked');
+        } else {
+            // Tiling inactive - different icon with reduced opacity
+            this.buttonIcon.icon_name = 'window-close-symbolic';
+            this.buttonIcon.add_style_class_name('simple-tiling-disabled');
+            this.panelButton.add_style_pseudo_class('checked');
+        }
+
+        console.log(`[Simple Tiling] Panel button updated for workspace ${workspaceIndex}: ${isEnabled ? 'enabled' : 'disabled'}`);
+    }
+
+    /**
+     * Toggle tiling for current workspace
+     */
+    _toggleCurrentWorkspace() {
+        const workspace = global.workspace_manager.get_active_workspace();
+        const workspaceIndex = workspace.index();
+        const currentState = this.workspaceEnabled.get(workspaceIndex) ?? true;
+        const newState = !currentState;
+
+        console.log(`[Simple Tiling] Toggling workspace ${workspaceIndex}: ${currentState} -> ${newState}`);
+        this.workspaceEnabled.set(workspaceIndex, newState);
+
+        if (newState) {
+            // Tiling enabled - apply current tree
+            console.log('[Simple Tiling] Tiling enabled, retiling workspace');
+            this._retile(workspaceIndex);
+        } else {
+            // Tiling disabled - windows remain in place
+            console.log('[Simple Tiling] Tiling disabled, windows remain in current positions');
+        }
+
+        this._updatePanelButton(workspaceIndex);
     }
 }
