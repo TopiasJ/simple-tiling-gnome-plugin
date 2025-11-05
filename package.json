@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "description": "Simple automatic tiling window manager for GNOME Shell using binary space partitioning",
   "scripts": {
-    "install": "mkdir -p ~/.local/share/gnome-shell/extensions/simple-tiling@tubbe && cp -r extension.js tilingManager.js treeNode.js metadata.json ~/.local/share/gnome-shell/extensions/simple-tiling@tubbe/",
+    "install": "mkdir -p ~/.local/share/gnome-shell/extensions/simple-tiling@tubbe && cp *.js metadata.json stylesheet.css ~/.local/share/gnome-shell/extensions/simple-tiling@tubbe/ && cp -r schemas/ ~/.local/share/gnome-shell/extensions/simple-tiling@tubbe/ && glib-compile-schemas ~/.local/share/gnome-shell/extensions/simple-tiling@tubbe/schemas/",
     "enable": "gnome-extensions enable simple-tiling@tubbe",
     "disable": "gnome-extensions disable simple-tiling@tubbe",
-    "logs": "journalctl -f -o cat /usr/bin/gnome-shell"
+    "logs": "journalctl -f -o cat /usr/bin/gnome-shell",
+    "prefs": "gnome-extensions prefs simple-tiling@tubbe"
   },
   "private": true
 }

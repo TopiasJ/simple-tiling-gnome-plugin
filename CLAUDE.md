@@ -51,10 +51,12 @@ For a simple automatic tiling system:
 
 ## Project Structure
 
-- `extension.js` - Main entry point, instantiates TilingManager on enable/disable
+- `extension.js` - Main entry point, instantiates TilingManager on enable/disable, sets up keybindings
 - `metadata.json` - Extension metadata with UUID `simple-tiling@tubbe`
-- `tilingManager.js` - Core tiling engine using BSP tree algorithm
+- `tilingManager.js` - Core tiling engine using BSP tree algorithm, panel button UI
 - `treeNode.js` - BSP tree node class (containers and window leaves)
+- `prefs.js` - Preferences UI for configuring keybindings
+- `schemas/org.gnome.shell.extensions.simple-tiling.gschema.xml` - GSettings schema for storing preferences
 
 ## Implementation Details
 
@@ -82,7 +84,7 @@ The extension uses a **Binary Space Partitioning tree** to manage window layouts
    - firstChild = old focused window
    - secondChild = new window
 7. Recalculate geometries recursively from root
-8. Apply geometries with 8px gaps using `move_resize_frame()`
+8. Apply geometries with 2px gaps using `move_resize_frame()`
 
 **Window Removal** (tilingManager.js:166):
 1. Listen to `unmanaged` signal
@@ -92,24 +94,66 @@ The extension uses a **Binary Space Partitioning tree** to manage window layouts
 5. If was only window, delete workspace tree
 6. Recalculate and apply geometries
 
+### User Interface Features
+
+**Panel Button** (tilingManager.js:733):
+- Icon displayed in top-left of GNOME Shell panel
+- Shows grid icon (view-grid-symbolic)
+- Styled with green overlay when tiling is enabled on current workspace
+- Styled with red overlay when tiling is disabled on current workspace
+- Click to toggle tiling on/off for current workspace
+
+**Keybinding** (extension.js:60):
+- Default: Super+t (configurable via preferences)
+- Toggles tiling on/off for current workspace
+- Uses GNOME Shell's keybinding system (Main.wm.addKeybinding)
+- Stored in GSettings: 'org.gnome.shell.extensions.simple-tiling'
+
+**Preferences UI** (prefs.js):
+- Accessible via GNOME Extensions app
+- Configure keybinding for toggle action
+- Uses Adw.PreferencesWindow with custom keybinding dialog
+- Supports clearing keybinding (Backspace) or canceling (Escape)
+
+**Per-Workspace Toggle** (tilingManager.js:805):
+- Each workspace can independently enable/disable tiling
+- When disabled, windows remain in place (not restored to floating)
+- When enabled, applies current BSP tree layout
+- State tracked in `workspaceEnabled` Map (default: enabled)
+
 ### Key Configuration
 
-- **Gap size**: 8px between windows (GAP_SIZE constant in tilingManager.js:7)
+- **Gap size**: 2px between windows (GAP_SIZE constant in tilingManager.js:10)
 - **Workspace scope**: Each workspace has independent tree, primary monitor only
 - **Split ratio**: 50/50 (TreeNode.splitRatio = 0.5)
+- **Default keybinding**: Super+t to toggle tiling per workspace
+- **GNOME Shell version**: 49
 
 ### Testing the Extension
 
 ```bash
 # Copy to extensions directory
 mkdir -p ~/.local/share/gnome-shell/extensions/simple-tiling@tubbe
-cp -r * ~/.local/share/gnome-shell/extensions/simple-tiling@tubbe/
+cp *.js metadata.json stylesheet.css ~/.local/share/gnome-shell/extensions/simple-tiling@tubbe/
+cp -r schemas/ ~/.local/share/gnome-shell/extensions/simple-tiling@tubbe/
+
+# Compile GSettings schemas
+glib-compile-schemas ~/.local/share/gnome-shell/extensions/simple-tiling@tubbe/schemas/
 
 # Enable the extension
 gnome-extensions enable simple-tiling@tubbe
 
 # View logs in real-time
 journalctl -f -o cat /usr/bin/gnome-shell
+
+# Test the keybinding
+# Press Super+t to toggle tiling on current workspace
+
+# Test the panel button
+# Click the grid icon in top-left panel to toggle tiling
+
+# Open preferences
+gnome-extensions prefs simple-tiling@tubbe
 
 # Disable when done testing
 gnome-extensions disable simple-tiling@tubbe

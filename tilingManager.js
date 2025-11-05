@@ -742,7 +742,7 @@ export class TilingManager {
         this.panelButton.add_child(this.buttonIcon);
 
         this.panelButton.connect('button-press-event', () => {
-            this._toggleCurrentWorkspace();
+            this.toggleCurrentWorkspace();
             return true; // Prevent menu from opening
         });
 
@@ -800,9 +800,9 @@ export class TilingManager {
     }
 
     /**
-     * Toggle tiling for current workspace
+     * Toggle tiling for current workspace (public method)
      */
-    _toggleCurrentWorkspace() {
+    toggleCurrentWorkspace() {
         const workspace = global.workspace_manager.get_active_workspace();
         const workspaceIndex = workspace.index();
         const currentState = this.workspaceEnabled.get(workspaceIndex) ?? true;

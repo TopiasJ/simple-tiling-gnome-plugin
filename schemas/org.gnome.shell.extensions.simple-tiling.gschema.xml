@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.simple-tiling" path="/org/gnome/shell/extensions/simple-tiling/">
+    <key name="toggle-tiling" type="as">
+      <default>[]</default>
+      <summary>Toggle tiling for current workspace</summary>
+      <description>Keyboard shortcut to enable/disable tiling on the current workspace</description>
+    </key>
+  </schema>
+</schemalist>
