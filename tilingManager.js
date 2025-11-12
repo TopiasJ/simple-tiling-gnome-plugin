@@ -139,11 +139,6 @@ export class TilingManager {
             metaWindow.disconnect(shownId);
             this._insertWindow(metaWindow, targetWindow);
         });
-
-        // Handle window removal
-        metaWindow.connect('unmanaged', () => {
-            this._removeWindow(metaWindow);
-        });
     }
 
     /**
@@ -241,7 +236,8 @@ export class TilingManager {
      * Start monitoring a window's geometry and correct it if it misbehaves
      */
     _monitorWindowGeometry(metaWindow) {
-        const signals = [];
+        // Get existing signals array or create new one
+        const signals = this.windowSignals.get(metaWindow) || [];
 
         // Listen to position changes
         const posId = metaWindow.connect('position-changed', () => {
@@ -254,6 +250,12 @@ export class TilingManager {
             this._onWindowGeometryChanged(metaWindow);
         });
         signals.push({ object: metaWindow, id: sizeId });
+
+        // Listen to window removal
+        const unmanagedId = metaWindow.connect('unmanaged', () => {
+            this._removeWindow(metaWindow);
+        });
+        signals.push({ object: metaWindow, id: unmanagedId });
 
         this.windowSignals.set(metaWindow, signals);
         console.log(`[Simple Tiling] Monitoring geometry changes for ${metaWindow.get_title()}`);
@@ -675,10 +677,8 @@ export class TilingManager {
                     this.windowNodes.set(metaWindow, newNode);
                     validWindows.push(metaWindow);
 
-                    // Handle window removal
-                    metaWindow.connect('unmanaged', () => {
-                        this._removeWindow(metaWindow);
-                    });
+                    // Monitor this window's geometry and signals
+                    this._monitorWindowGeometry(metaWindow);
                 } catch (e) {
                     console.log(`[Simple Tiling] Error checking window ${metaWindow.get_title()}: ${e.message}`);
                 }
