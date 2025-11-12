@@ -257,8 +257,96 @@ export class TilingManager {
         });
         signals.push({ object: metaWindow, id: unmanagedId });
 
+        // Listen to workspace changes
+        const workspaceChangedId = metaWindow.connect('workspace-changed', () => {
+            this._onWindowWorkspaceChanged(metaWindow);
+        });
+        signals.push({ object: metaWindow, id: workspaceChangedId });
+
         this.windowSignals.set(metaWindow, signals);
         console.log(`[Simple Tiling] Monitoring geometry changes for ${metaWindow.get_title()}`);
+    }
+
+    /**
+     * Handle window moving to a different workspace
+     */
+    _onWindowWorkspaceChanged(metaWindow) {
+        console.log(`[Simple Tiling] Window workspace changed: ${metaWindow.get_title()}`);
+
+        const node = this.windowNodes.get(metaWindow);
+        if (!node) {
+            console.log(`[Simple Tiling] Window not in tree, ignoring workspace change`);
+            return;
+        }
+
+        // Find old workspace (where the window currently is in the tree)
+        let oldWorkspaceIndex = null;
+        for (const [wsIndex, root] of this.workspaceTrees.entries()) {
+            if (this._nodeInTree(node, root)) {
+                oldWorkspaceIndex = wsIndex;
+                break;
+            }
+        }
+
+        // Get new workspace
+        const newWorkspace = metaWindow.get_workspace();
+        if (!newWorkspace) {
+            console.log('[Simple Tiling] Window has no workspace after change, ignoring');
+            return;
+        }
+        const newWorkspaceIndex = newWorkspace.index();
+
+        console.log(`[Simple Tiling] Moving window from workspace ${oldWorkspaceIndex} to ${newWorkspaceIndex}`);
+
+        // If workspace didn't actually change, ignore
+        if (oldWorkspaceIndex === newWorkspaceIndex) {
+            return;
+        }
+
+        // Remove from old workspace tree (but keep in windowNodes and keep monitoring)
+        if (oldWorkspaceIndex !== null) {
+            if (!node.parent) {
+                // Was the only window on old workspace
+                console.log(`[Simple Tiling] Window was only window on workspace ${oldWorkspaceIndex}`);
+                this.workspaceTrees.delete(oldWorkspaceIndex);
+                this.singleWindowWorkspaces.delete(oldWorkspaceIndex);
+            } else {
+                const parent = node.parent;
+                const sibling = node.getSibling();
+
+                if (sibling) {
+                    console.log(`[Simple Tiling] Promoting sibling to parent's position on old workspace`);
+                    if (parent.parent) {
+                        parent.replaceWith(sibling);
+                    } else {
+                        this.workspaceTrees.set(oldWorkspaceIndex, sibling);
+                        sibling.parent = null;
+                    }
+                } else {
+                    console.log(`[Simple Tiling] No sibling found, removing parent`);
+                    if (parent.parent) {
+                        parent.detach();
+                    } else {
+                        this.workspaceTrees.delete(oldWorkspaceIndex);
+                        this.singleWindowWorkspaces.delete(oldWorkspaceIndex);
+                    }
+                }
+            }
+
+            // Reset the node's parent reference
+            node.parent = null;
+
+            // Retile old workspace
+            console.log(`[Simple Tiling] Retiling old workspace ${oldWorkspaceIndex}`);
+            this._retile(oldWorkspaceIndex);
+        }
+
+        // Temporarily remove from windowNodes so _insertWindow will work
+        this.windowNodes.delete(metaWindow);
+
+        // Insert into new workspace tree
+        console.log(`[Simple Tiling] Inserting window into new workspace ${newWorkspaceIndex}`);
+        this._insertWindow(metaWindow, null);
     }
 
     /**

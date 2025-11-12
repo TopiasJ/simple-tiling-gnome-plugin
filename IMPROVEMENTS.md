@@ -28,13 +28,14 @@ Check `workspaceEnabled` before inserting windows into the tree.
 
 ## ⚠️ Important Issues
 
-### 3. No Window Movement Between Workspaces
+### ~~3. No Window Movement Between Workspaces~~ ✅
 **Issue:**
-- When a window moves to another workspace, it's not tracked
-- Could cause stale references or incorrect layouts
+- ~~When a window moves to another workspace, it's not tracked~~
+- ~~Could cause stale references or incorrect layouts~~
 
 **Fix:**
-Listen to `workspace-changed` signal on windows to handle workspace transitions.
+~~Listen to `workspace-changed` signal on windows to handle workspace transitions.~~
+**Status:** Fixed - now listening to `workspace-changed` signal in tilingManager.js:260-350
 
 ### 4. No Multi-Monitor Support
 **Location:** `tilingManager.js:487`
@@ -221,7 +222,7 @@ Update to: `"shell-version": ["45", "46", "47", "48", "49"]`
 2. Prevent window insertion when tiling is disabled
 
 **Short-term (Important Issues):**
-3. Add window workspace movement tracking
+3. ~~Add window workspace movement tracking~~ ✅
 4. Handle minimize/maximize states
 5. Complete metadata.json fields
 
