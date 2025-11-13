@@ -733,86 +733,97 @@ export class TilingManager {
     }
 
     /**
-     * Tile existing windows on current workspace
+     * Tile existing windows on all workspaces
      */
     _tileExistingWindows() {
         console.log('[Simple Tiling] _tileExistingWindows called');
         const workspaceManager = global.workspace_manager;
-        const activeWorkspace = workspaceManager.get_active_workspace();
+        const numWorkspaces = workspaceManager.get_n_workspaces();
 
-        const windows = activeWorkspace.list_windows();
-        console.log(`[Simple Tiling] Found ${windows.length} windows on active workspace`);
+        console.log(`[Simple Tiling] Checking ${numWorkspaces} workspaces for existing windows`);
 
-        const validWindows = [];
-        windows.forEach(metaWindow => {
-            console.log(`[Simple Tiling] Checking window: ${metaWindow.get_title()}, type: ${metaWindow.window_type}`);
-            if (this._shouldTileWindow(metaWindow)) {
-                // Only add windows that are actually ready
-                try {
-                    if (!metaWindow.get_compositor_private()) {
-                        console.log(`[Simple Tiling] Skipping window without compositor: ${metaWindow.get_title()}`);
-                        return;
+        // Process each workspace
+        for (let wsIndex = 0; wsIndex < numWorkspaces; wsIndex++) {
+            const workspace = workspaceManager.get_workspace_by_index(wsIndex);
+            if (!workspace) continue;
+
+            const windows = workspace.list_windows();
+            console.log(`[Simple Tiling] Found ${windows.length} windows on workspace ${wsIndex}`);
+
+            const validWindows = [];
+            windows.forEach(metaWindow => {
+                console.log(`[Simple Tiling] Checking window: ${metaWindow.get_title()}, type: ${metaWindow.window_type}`);
+                if (this._shouldTileWindow(metaWindow)) {
+                    // Only add windows that are actually ready
+                    try {
+                        if (!metaWindow.get_compositor_private()) {
+                            console.log(`[Simple Tiling] Skipping window without compositor: ${metaWindow.get_title()}`);
+                            return;
+                        }
+
+                        const frameRect = metaWindow.get_frame_rect();
+                        if (!frameRect || frameRect.width === 0 || frameRect.height === 0) {
+                            console.log(`[Simple Tiling] Skipping window with invalid frame: ${metaWindow.get_title()}`);
+                            return;
+                        }
+
+                        console.log(`[Simple Tiling] Adding existing window to tree: ${metaWindow.get_title()}`);
+                        const newNode = new TreeNode(NodeType.WINDOW, metaWindow);
+                        this.windowNodes.set(metaWindow, newNode);
+                        validWindows.push(metaWindow);
+
+                        // Monitor this window's geometry and signals
+                        this._monitorWindowGeometry(metaWindow);
+                    } catch (e) {
+                        console.log(`[Simple Tiling] Error checking window ${metaWindow.get_title()}: ${e.message}`);
                     }
-
-                    const frameRect = metaWindow.get_frame_rect();
-                    if (!frameRect || frameRect.width === 0 || frameRect.height === 0) {
-                        console.log(`[Simple Tiling] Skipping window with invalid frame: ${metaWindow.get_title()}`);
-                        return;
-                    }
-
-                    console.log(`[Simple Tiling] Adding existing window to tree: ${metaWindow.get_title()}`);
-                    const newNode = new TreeNode(NodeType.WINDOW, metaWindow);
-                    this.windowNodes.set(metaWindow, newNode);
-                    validWindows.push(metaWindow);
-
-                    // Monitor this window's geometry and signals
-                    this._monitorWindowGeometry(metaWindow);
-                } catch (e) {
-                    console.log(`[Simple Tiling] Error checking window ${metaWindow.get_title()}: ${e.message}`);
                 }
-            }
-        });
+            });
 
-        if (validWindows.length === 0) {
-            console.log('[Simple Tiling] No valid windows to tile');
-            return;
-        }
-
-        // Build initial tree
-        const workspaceIndex = activeWorkspace.index();
-        const windowArray = Array.from(this.windowNodes.values());
-
-        // Start with first window as root
-        let root = windowArray[0];
-        this.workspaceTrees.set(workspaceIndex, root);
-
-        // Insert remaining windows one by one
-        for (let i = 1; i < windowArray.length; i++) {
-            const node = windowArray[i];
-
-            // Find a leaf to split
-            const leaves = root.getLeaves();
-            const targetNode = leaves[leaves.length - 1]; // Use last leaf
-
-            const splitType = this._determineSplitType(targetNode.geometry || {width: 1920, height: 1080});
-
-            const container = new TreeNode(NodeType.CONTAINER);
-            container.splitType = splitType;
-
-            if (targetNode.parent) {
-                targetNode.replaceWith(container);
-            } else {
-                root = container;
-                this.workspaceTrees.set(workspaceIndex, container);
+            if (validWindows.length === 0) {
+                console.log(`[Simple Tiling] No valid windows to tile on workspace ${wsIndex}`);
+                continue;
             }
 
-            container.firstChild = targetNode;
-            container.secondChild = node;
-            targetNode.parent = container;
-            node.parent = container;
+            // Build initial tree for this workspace
+            console.log(`[Simple Tiling] Building tree for workspace ${wsIndex} with ${validWindows.length} windows`);
+
+            // Start with first window as root
+            let root = this.windowNodes.get(validWindows[0]);
+            this.workspaceTrees.set(wsIndex, root);
+
+            // Insert remaining windows one by one
+            for (let i = 1; i < validWindows.length; i++) {
+                const metaWindow = validWindows[i];
+                const node = this.windowNodes.get(metaWindow);
+
+                // Find a leaf to split
+                const leaves = root.getLeaves();
+                const targetNode = leaves[leaves.length - 1]; // Use last leaf
+
+                const splitType = this._determineSplitType(targetNode.geometry || {width: 1920, height: 1080});
+
+                const container = new TreeNode(NodeType.CONTAINER);
+                container.splitType = splitType;
+
+                if (targetNode.parent) {
+                    targetNode.replaceWith(container);
+                } else {
+                    root = container;
+                    this.workspaceTrees.set(wsIndex, container);
+                }
+
+                container.firstChild = targetNode;
+                container.secondChild = node;
+                targetNode.parent = container;
+                node.parent = container;
+            }
+
+            // Retile this workspace
+            this._retile(wsIndex);
         }
 
-        this._retile(workspaceIndex);
+        console.log('[Simple Tiling] Finished tiling all existing windows');
     }
 
     /**
