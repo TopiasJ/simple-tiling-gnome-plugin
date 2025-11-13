@@ -55,18 +55,19 @@ Track trees per-workspace-per-monitor instead of just per-workspace.
 **Fix:**
 Temporarily remove minimized windows from layout and handle maximize states properly.
 
-### 6. Missing Metadata Fields
+### ~~6. Missing Metadata Fields~~ ✅
 **Location:** `metadata.json`
 
 **Issue:**
-- No version number, URL, or settings-schema
-- Won't validate properly for GNOME Extensions website
+- ~~No version number, URL, or settings-schema~~
+- ~~Won't validate properly for GNOME Extensions website~~
 
 **Fix:**
-Add the following fields:
-- `"version": 1`
-- `"url": "https://..."`
-- `"settings-schema": "org.gnome.shell.extensions.simple-tiling"`
+~~Add the following fields:~~
+- ~~`"version": 1`~~
+- ~~`"url": "https://..."`~~
+- ~~`"settings-schema": "org.gnome.shell.extensions.simple-tiling"`~~
+**Status:** Fixed - Added version, url, and settings-schema fields to metadata.json
 
 ---
 
@@ -224,7 +225,7 @@ Update to: `"shell-version": ["45", "46", "47", "48", "49"]`
 **Short-term (Important Issues):**
 3. ~~Add window workspace movement tracking~~ ✅
 4. Handle minimize/maximize states
-5. Complete metadata.json fields
+5. ~~Complete metadata.json fields~~ ✅
 
 **Medium-term (Features):**
 6. Add manual resizing capability
