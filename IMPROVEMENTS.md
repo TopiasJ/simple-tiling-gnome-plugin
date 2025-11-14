@@ -4,15 +4,16 @@ This document contains suggestions for improvements and bug fixes for the Simple
 
 ## 🐛 Critical Bugs
 
-### 1. Memory Leak - Untracked Signal Connections
+### ~~1. Memory Leak - Untracked Signal Connections~~ ✅
 **Location:** `tilingManager.js:144`, `tilingManager.js:679`
 
 **Issue:**
-- The `unmanaged` signal connections are not stored in `windowSignals` Map
-- These won't be cleaned up on disable, causing memory leaks
+- ~~The `unmanaged` signal connections are not stored in `windowSignals` Map~~
+- ~~These won't be cleaned up on disable, causing memory leaks~~
 
 **Fix:**
-Track all signal connections properly in the `windowSignals` Map for cleanup.
+~~Track all signal connections properly in the `windowSignals` Map for cleanup.~~
+**Status:** Fixed - unmanaged signal now properly tracked in windowSignals Map at tilingManager.js:255-258
 
 ### 2. Windows Added to Tree When Tiling Disabled
 **Location:** `tilingManager.js:154-161`
@@ -219,7 +220,7 @@ Update to: `"shell-version": ["45", "46", "47", "48", "49"]`
 ## Priority Recommendations
 
 **Immediate (Critical Bugs):**
-1. Fix memory leak from untracked signal connections
+1. ~~Fix memory leak from untracked signal connections~~ ✅
 2. Prevent window insertion when tiling is disabled
 
 **Short-term (Important Issues):**
